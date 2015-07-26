@@ -1,0 +1,130 @@
+---
+title       : Predicting Used Car Prices
+subtitle    : An App learns the price of used cars using online data
+author      : Charles Copley
+job         : Researcher
+framework   : io2012       # {io2012, html5slides, shower, dzslides, ...}
+highlighter : highlight.js  # {highlight.js, prettify, highlight}
+hitheme     : tomorrow      # 
+widgets     : []            # {mathjax, quiz, bootstrap}
+mode        : selfcontained # {standalone, draft}
+knit        : slidify::knit2slides
+---
+
+## What does it do?
+
+1. Scrapes unstructured data from a used car website (www.autotrader.co.za) using parallel R scrapers. 
+2. Extracts car make, model, mileage, engine size, year, selling price.
+3. Uses Gradient Boosted Regression to 'learn' from the data and make predictions of car prices given unseen information
+4. Deploys an R-Shiny App for interface to the user.
+5. Plots the price of car, as well as information about estimated depreciation.
+
+--- .class #id 
+
+## Give it some inputs and predict a Price?
+```{r, echo=FALSE}
+load('predict.RData')
+load('purchase.RData')
+load('fitBoost.RData')
+library('ggplot2')
+library(gbm)
+library(splines)
+load('data.RData')
+source('./functions.R')
+mileageBreaks <- c(0,10000,20000,50000,100000,120000,140000,160000,180000,
+                   200000,300000,500000,1000000,2000000)
+priceBreaks <- c(seq(from=0,by=20000, to=100000),seq(from=125000,by=25000, to=300000),
+                 seq(from=350000,by=50000, to=600000),seq(from=700000,by=100000, to=3500000))
+```
+```{r}
+model<-'audi'
+make<-'a4'
+year<-2014
+engineSize<-1.8
+mileage<-100000
+```
+
+```{r,echo=FALSE}
+purchaseVehicle$Make <-toupper(model)
+purchaseVehicle$Model <-toupper(make)
+purchaseVehicle$Year<-year
+purchaseVehicle$Engine<-engineSize
+purchaseVehicle$Mileage<-as.numeric(mileage)
+purchaseVehicle<-featureCreation(purchaseVehicle,mileageBreaks,priceBreaks)
+labelsMake <- levels(data$Make)
+labelsModel <- levels(data$Model)
+labelsEngine <- levels(data$Engine)
+labelsMileageFeat <- levels(data$MileageFeat)
+labelsYear <- levels(data$Year)
+purchaseVehicle$Make<- factor(purchaseVehicle$Make, levels=labelsMake)
+purchaseVehicle$Model<- factor(purchaseVehicle$Model, levels=labelsModel)
+purchaseVehicle$Engine<- factor(purchaseVehicle$Engine, levels=labelsEngine)
+purchaseVehicle$Year<- factor(purchaseVehicle$Year, levels=labelsYear)
+purchaseVehicle$MileageFeat<- factor(as.character(purchaseVehicle$MileageFeat), levels=labelsMileageFeat)
+PricesOfInterest <- predict(fitBoost, as.data.frame(purchaseVehicle),n.trees=50)
+x<-rbind(floor(PricesOfInterest),ceiling(PricesOfInterest))
+y<-rbind(priceBreaks[x[1,]],priceBreaks[x[2,]])
+tt<-1:length(priceBreaks)   
+b<-approx(x=tt, y=priceBreaks, PricesOfInterest, method = "linear")
+```
+```{r,echo=FALSE}
+PricesOfInterest <- predict(fitBoost, as.data.frame(purchaseVehicle),n.trees=50)
+priceEstimate<-approx(x=tt, y=priceBreaks, PricesOfInterest, method = "linear")
+```
+
+The price is then given by the priceEstimate variable
+```{r}
+priceEstimate[2]
+```
+
+--- .class #id
+
+## Can Also Predict Depreciation
+```{r,echo=FALSE}
+depreciation<-purchaseVehicle
+
+for(i in 2:5){
+  depreciation<-rbind(depreciation,purchaseVehicle)
+  depreciation$Year[i]<-as.numeric(as.character(depreciation$Year[i-1]))-1
+}
+depreciation<-featureCreation(depreciation,mileageBreaks,priceBreaks)
+```
+
+```{r,echo=FALSE}
+ labelsMake <- levels(data$Make)
+      labelsModel <- levels(data$Model)
+      labelsEngine <- levels(data$Engine)
+      labelsMileageFeat <- levels(data$MileageFeat)
+      depreciation$Make<- factor(depreciation$Make, levels=labelsMake)
+      depreciation$Model<- factor(depreciation$Model, levels=labelsModel)
+      depreciation$Engine<- factor(depreciation$Engine, levels=labelsEngine)
+      depreciation$MileageFeat<- factor(as.character(depreciation$MileageFeat), levels=labelsMileageFeat)
+      PricesOfInterest <- predict(fitBoost, as.data.frame(depreciation),n.trees=50)
+      x<-rbind(floor(PricesOfInterest),ceiling(PricesOfInterest))
+      y<-rbind(priceBreaks[x[1,]],priceBreaks[x[2,]])
+      tt<-1:length(priceBreaks)   
+
+      b<-approx(x=tt, y=priceBreaks, PricesOfInterest, method = "linear")
+#       
+      Year<-as.numeric(as.character(depreciation$Year))
+      Price<-as.numeric(b$y)
+      data<-data.frame(Year,Price)
+```
+
+
+```{r simpleplot,fig.width=13, fig.height=7,echo=FALSE}
+       ggplot(data, aes(x=Year, y=Price)) +
+                  geom_point(alpha=1) +
+                  geom_line()+
+                  stat_smooth(method = "lm", formula = y ~ ns(x,3),size=2) +
+                #  geom_smooth(alpha=.2, size=2,method = "rlm",formula = y ~ ns(x,3)) +
+                  ggtitle("Price of Car vs Year\n[Scraped from AutoTrader.co.za.]") + scale_x_reverse()+ ylab('Price')
+```
+
+---
+
+## Summary
+
+  * Predictive App for Price estimation
+  * Takes Model, Make, Year, Mileage and Engine Size as Inputs
+  * Can be used for depreciation
